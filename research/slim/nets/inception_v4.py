@@ -170,9 +170,10 @@ def inception_v4_base(inputs, final_endpoint='Mixed_7d', scope=None):
     end_points[name] = net
     return name == final_endpoint
 
-  with tf.variable_scope(scope, 'InceptionV4', [inputs]):
+  with tf.variable_scope(scope, 'InceptionV4', [inputs]) as sc:
+    end_points_collection = sc.original_name_scope + '_end_points'
     with slim.arg_scope([slim.conv2d, slim.max_pool2d, slim.avg_pool2d],
-                        stride=1, padding='SAME'):
+                        stride=1, padding='SAME', outputs_collections=end_points_collection):
       # 299 x 299 x 3
       net = slim.conv2d(inputs, 32, [3, 3], stride=2,
                         padding='VALID', scope='Conv2d_1a_3x3')
@@ -199,10 +200,12 @@ def inception_v4_base(inputs, final_endpoint='Mixed_7d', scope=None):
       with tf.variable_scope('Mixed_4a'):
         with tf.variable_scope('Branch_0'):
           branch_0 = slim.conv2d(net, 64, [1, 1], scope='Conv2d_0a_1x1')
+          add_and_check_final('Conv2d_0a_1x1', branch_0)
           branch_0 = slim.conv2d(branch_0, 96, [3, 3], padding='VALID',
                                  scope='Conv2d_1a_3x3')
         with tf.variable_scope('Branch_1'):
           branch_1 = slim.conv2d(net, 64, [1, 1], scope='Conv2d_0a_1x1')
+          add_and_check_final('Conv2d_0a_1x1', branch_1)
           branch_1 = slim.conv2d(branch_1, 64, [1, 7], scope='Conv2d_0b_1x7')
           branch_1 = slim.conv2d(branch_1, 64, [7, 1], scope='Conv2d_0c_7x1')
           branch_1 = slim.conv2d(branch_1, 96, [3, 3], padding='VALID',
@@ -281,12 +284,13 @@ def inception_v4(inputs, num_classes=1001, is_training=True,
   """
   end_points = {}
   with tf.variable_scope(scope, 'InceptionV4', [inputs], reuse=reuse) as scope:
+    end_points_collection = scope.original_name_scope + '_end_points'
     with slim.arg_scope([slim.batch_norm, slim.dropout],
                         is_training=is_training):
       net, end_points = inception_v4_base(inputs, scope=scope)
 
       with slim.arg_scope([slim.conv2d, slim.max_pool2d, slim.avg_pool2d],
-                          stride=1, padding='SAME'):
+                          stride=1, padding='SAME', outputs_collections=end_points_collection):
         # Auxiliary Head logits
         if create_aux_logits and num_classes:
           with tf.variable_scope('AuxLogits'):
@@ -330,6 +334,7 @@ def inception_v4(inputs, num_classes=1001, is_training=True,
                                         scope='Logits')
           end_points['Logits'] = logits
           end_points['Predictions'] = tf.nn.softmax(logits, name='Predictions')
+    end_points = slim.utils.convert_collection_to_dict(end_points_collection)
     return logits, end_points
 inception_v4.default_image_size = 299
 

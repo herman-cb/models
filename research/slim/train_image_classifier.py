@@ -25,6 +25,8 @@ from deployment import model_deploy
 from nets import nets_factory
 from preprocessing import preprocessing_factory
 
+from zoo.utils.characterize import collect_sparsity_stats
+
 slim = tf.contrib.slim
 
 tf.app.flags.DEFINE_string(
@@ -60,11 +62,11 @@ tf.app.flags.DEFINE_integer(
     'The frequency with which logs are print.')
 
 tf.app.flags.DEFINE_integer(
-    'save_summaries_secs', 600,
+    'save_summaries_secs', 600,  #was 600
     'The frequency with which summaries are saved, in seconds.')
 
 tf.app.flags.DEFINE_integer(
-    'save_interval_secs', 600,
+    'save_interval_secs', 600,   # was 600
     'The frequency with which the model is saved, in seconds.')
 
 tf.app.flags.DEFINE_integer(
@@ -408,6 +410,9 @@ def main(_):
     ######################
     # Select the network #
     ######################
+    print("num classes in train classifier = {}".format(dataset.num_classes - FLAGS.labels_offset))
+    print("a = {}".format(dataset.num_classes))
+    print("b = {}".format(FLAGS.labels_offset))
     network_fn = nets_factory.get_network_fn(
         FLAGS.model_name,
         num_classes=(dataset.num_classes - FLAGS.labels_offset),
@@ -460,6 +465,7 @@ def main(_):
       # Specify the loss function #
       #############################
       if 'AuxLogits' in end_points:
+        print("-------AuxLogits in endpoints--------")
         slim.losses.softmax_cross_entropy(
             end_points['AuxLogits'], labels,
             label_smoothing=FLAGS.label_smoothing, weights=0.4,
@@ -477,21 +483,39 @@ def main(_):
     # the updates for the batch_norm variables created by network_fn.
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS, first_clone_scope)
 
-    # Add summaries for end_points.
-    end_points = clones[0].outputs
-    for end_point in end_points:
-      x = end_points[end_point]
-      summaries.add(tf.summary.histogram('activations/' + end_point, x))
-      summaries.add(tf.summary.scalar('sparsity/' + end_point,
-                                      tf.nn.zero_fraction(x)))
-
     # Add summaries for losses.
+    ce_loss = None
     for loss in tf.get_collection(tf.GraphKeys.LOSSES, first_clone_scope):
+      print('*******loss: {}'.format(loss))
+      ce_loss = loss
       summaries.add(tf.summary.scalar('losses/%s' % loss.op.name, loss))
 
+
+    print("ce_loss = {}".format(ce_loss))
+
+    # Add summaries for end_points.
+    end_points = clones[0].outputs
+    delta_ops = []
+    for end_point in end_points:
+      x = end_points[end_point]
+      #print("x = {}".format(x))
+      #summaries.add(tf.summary.histogram('activations/' + end_point, x))
+      #summaries.add(tf.summary.scalar('sparsity/' + end_point,
+      #                                tf.nn.zero_fraction(x)))
+      delta = tf.gradients(ce_loss, x)
+      #if delta[0] is None:
+      #  print("*****x = {}*****".format(x))
+      #else:
+      #  print("delta = {}".format(delta))
+      #  summaries.add(tf.summary.scalar('delta-sparsity/' + end_point,
+      #                                    tf.nn.zero_fraction(delta[0])))
+      #  delta_ops.append(delta[0])
+
+
+
     # Add summaries for variables.
-    for variable in slim.get_model_variables():
-      summaries.add(tf.summary.histogram(variable.op.name, variable))
+    #for variable in slim.get_model_variables():
+    #  summaries.add(tf.summary.histogram(variable.op.name, variable))
 
     #################################
     # Configure the moving averages #
@@ -533,6 +557,7 @@ def main(_):
         optimizer,
         var_list=variables_to_train)
     # Add total_loss to summary.
+    print("total_loss = {}".format(total_loss))
     summaries.add(tf.summary.scalar('total_loss', total_loss))
 
     # Create gradient updates.
@@ -540,10 +565,13 @@ def main(_):
                                              global_step=global_step)
     update_ops.append(grad_updates)
 
+    #delta_op = tf.group(*delta_ops)
     update_op = tf.group(*update_ops)
     with tf.control_dependencies([update_op]):
       train_tensor = tf.identity(total_loss, name='train_op')
-
+    
+    with tf.name_scope("training_stats"):
+        collect_sparsity_stats()
     # Add the summaries from the first clone. These contain the summaries
     # created by model_fn and either optimize_clones() or _gather_clone_loss().
     summaries |= set(tf.get_collection(tf.GraphKeys.SUMMARIES,
@@ -551,8 +579,7 @@ def main(_):
 
     # Merge all summaries together.
     summary_op = tf.summary.merge(list(summaries), name='summary_op')
-
-
+    #summary_op = tf.summary.merge_all()
     ###########################
     # Kicks off the training. #
     ###########################

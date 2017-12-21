@@ -1,0 +1,1 @@
+python train_image_classifier.py --dataset_dir=/cb/data/imagenet1k/processed/ --model_name=vgg_19 --max_number_of_steps=10000 _learning_rate=0.00001 --batch_size=64 --train_dir=/cb/data/herman/github3376/vgg_19/ --labels_offset=1 --checkpoint_path=/cb/data/herman/trained_models/vgg_19.ckpt --save_summaries_secs=60 --learning_rate=0
